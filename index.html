@@ -1,0 +1,866 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IceCube Neutrino Event Simulator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600&display=swap" rel="stylesheet">
+<style>
+/* Layout idea: one-screen instrument. Control rail on the left, the detector
+   fills the rest, a light-versus-time strip runs along the bottom.
+   Single dark theme by choice: the detector sits in dark ice. */
+:root {
+  color-scheme: dark;
+  --ice-0: #050a13;
+  --ice-1: #0c1524;
+  --ice-2: #142136;
+  --line: #24364f;
+  --text: #dce8f6;
+  --muted: #8498b3;
+  --accent: #62d2ff;
+  --font-display: "IBM Plex Sans Condensed", "Arial Narrow", sans-serif;
+  --font-body: "IBM Plex Sans", "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", Menlo, monospace;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--ice-0);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.45;
+}
+.app {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  height: 100%;
+}
+.rail {
+  background: var(--ice-1);
+  border-right: 1px solid var(--line);
+  overflow-y: auto;
+  padding: 18px 16px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+h1 {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  margin: 0;
+  text-wrap: balance;
+}
+.lede { color: var(--muted); margin: 4px 0 0; font-size: 13px; }
+fieldset {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 0;
+  padding: 12px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+legend {
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 0 8px 0 0;
+}
+.segmented { display: flex; gap: 6px; flex-wrap: wrap; }
+.segmented label { flex: 1 1 0; min-width: 0; }
+.segmented input { position: absolute; opacity: 0; pointer-events: none; }
+.segmented span {
+  display: block;
+  text-align: center;
+  padding: 7px 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--ice-2);
+  cursor: pointer;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.segmented input:checked + span {
+  border-color: var(--accent);
+  color: var(--ice-0);
+  background: var(--accent);
+}
+.segmented input:focus-visible + span,
+button:focus-visible,
+input[type="range"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.slider-row { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: baseline; }
+.slider-row label { color: var(--text); }
+.slider-row output { font-family: var(--font-mono); font-size: 13px; color: var(--accent); font-variant-numeric: tabular-nums; }
+.slider-row input { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); margin: 2px 0 0; }
+.hint { color: var(--muted); font-size: 12px; margin: 0; }
+button {
+  font: inherit;
+  font-weight: 500;
+  color: var(--text);
+  background: var(--ice-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 7px 10px;
+  cursor: pointer;
+}
+button:hover { border-color: var(--accent); }
+.button-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.button-row button { flex: 1 1 auto; }
+dl.readout { display: grid; grid-template-columns: auto 1fr; gap: 5px 12px; margin: 0; }
+dl.readout dt { color: var(--muted); }
+dl.readout dd { margin: 0; font-family: var(--font-mono); font-size: 13px; font-variant-numeric: tabular-nums; text-align: right; overflow-wrap: anywhere; }
+details { border-top: 1px solid var(--line); padding-top: 10px; color: var(--muted); font-size: 12.5px; }
+details summary { cursor: pointer; color: var(--text); font-weight: 500; }
+details ul { margin: 8px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 5px; }
+.stage { display: grid; grid-template-rows: 1fr auto; min-width: 0; min-height: 0; }
+.view { position: relative; min-height: 0; }
+#scene { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+#scene.dragging { cursor: grabbing; }
+.badge {
+  position: absolute; left: 16px; top: 14px;
+  font-family: var(--font-display); font-size: 18px; font-weight: 600;
+  pointer-events: none;
+}
+.badge small { display: block; font-family: var(--font-body); font-weight: 400; font-size: 12.5px; color: var(--muted); }
+.zoom { position: absolute; right: 16px; top: 14px; display: flex; gap: 6px; }
+.zoom button { width: 34px; padding: 5px 0; font-family: var(--font-mono); }
+.legend {
+  position: absolute; right: 16px; bottom: 12px;
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; color: var(--muted); pointer-events: none;
+}
+.legend i {
+  display: block; width: 120px; height: 8px; border-radius: 4px;
+  background: linear-gradient(90deg, hsl(0 95% 60%), hsl(60 95% 60%), hsl(125 95% 60%), hsl(190 95% 60%), hsl(250 95% 60%));
+}
+.timeline {
+  border-top: 1px solid var(--line);
+  background: var(--ice-1);
+  padding: 10px 16px 12px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 4px 12px;
+  align-items: center;
+}
+.timeline .caption { grid-column: 1 / -1; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; color: var(--muted); font-size: 12px; }
+.timeline .caption b { color: var(--text); font-family: var(--font-mono); font-weight: 500; font-variant-numeric: tabular-nums; }
+#play { min-width: 74px; }
+.scrub { position: relative; height: 64px; min-width: 0; }
+#wave { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#time { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: ew-resize; }
+#time:focus-visible + .focus-ring { outline: 2px solid var(--accent); }
+.focus-ring { position: absolute; inset: 0; pointer-events: none; border-radius: 4px; }
+@media (max-width: 820px) {
+  html, body { height: auto; }
+  .app { grid-template-columns: 1fr; height: auto; }
+  .stage { order: -1; }
+  .view { height: 440px; }
+  .rail { border-right: 0; border-top: 1px solid var(--line); overflow: visible; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="rail">
+    <header>
+      <h1>IceCube Neutrino Event Simulator</h1>
+      <p class="lede">A neutrino hits the ice, charged particles make blue Cherenkov light, and 5,160 sensors (DOMs) record it. Change the neutrino and watch the light pattern change.</p>
+    </header>
+
+    <fieldset>
+      <legend>Classic events</legend>
+      <div class="button-row">
+        <button type="button" id="preset-cascade">Cascade</button>
+        <button type="button" id="preset-track">Starting track</button>
+        <button type="button" id="preset-bang">Double bang</button>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Neutrino</legend>
+      <div class="segmented" role="radiogroup" aria-label="Flavor">
+        <label><input type="radio" name="flavor" id="flavor-e" value="12"><span>ν<sub>e</sub> electron</span></label>
+        <label><input type="radio" name="flavor" id="flavor-mu" value="14" checked><span>ν<sub>μ</sub> muon</span></label>
+        <label><input type="radio" name="flavor" id="flavor-tau" value="16"><span>ν<sub>τ</sub> tau</span></label>
+      </div>
+      <div class="segmented" role="radiogroup" aria-label="Interaction">
+        <label><input type="radio" name="interaction" id="int-cc" value="1" checked><span>Charged current (CC)</span></label>
+        <label><input type="radio" name="interaction" id="int-nc" value="2"><span>Neutral current (NC)</span></label>
+      </div>
+      <div class="slider-row">
+        <label for="energy">Neutrino energy</label><output id="energy-out" for="energy"></output>
+        <input type="range" id="energy" min="3" max="7" step="0.01" value="5.3">
+      </div>
+      <p class="hint">Log scale, from 1 TeV to 10 PeV.</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Arrival direction</legend>
+      <div class="slider-row">
+        <label for="zenith">Zenith angle</label><output id="zenith-out" for="zenith"></output>
+        <input type="range" id="zenith" min="0" max="180" step="1" value="70">
+      </div>
+      <div class="slider-row">
+        <label for="azimuth">Azimuth angle</label><output id="azimuth-out" for="azimuth"></output>
+        <input type="range" id="azimuth" min="0" max="360" step="1" value="220">
+      </div>
+      <p class="hint">Zenith 0° comes straight down from the sky. Zenith 180° comes up through the Earth.</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Interaction point</legend>
+      <div class="slider-row">
+        <label for="vx">x</label><output id="vx-out" for="vx"></output>
+        <input type="range" id="vx" min="-500" max="500" step="5" value="-200">
+      </div>
+      <div class="slider-row">
+        <label for="vy">y</label><output id="vy-out" for="vy"></output>
+        <input type="range" id="vy" min="-500" max="500" step="5" value="-150">
+      </div>
+      <div class="slider-row">
+        <label for="depth">Depth below the surface</label><output id="depth-out" for="depth"></output>
+        <input type="range" id="depth" min="1450" max="2450" step="5" value="1850">
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>This event</legend>
+      <dl class="readout">
+        <dt>Energy to vertex shower</dt><dd id="r-y"></dd>
+        <dt>Vertex shower</dt><dd id="r-vertex"></dd>
+        <dt>Muon</dt><dd id="r-muon"></dd>
+        <dt>Tau</dt><dd id="r-tau"></dd>
+        <dt>DOMs hit</dt><dd id="r-doms"></dd>
+        <dt>Total charge</dt><dd id="r-charge"></dd>
+      </dl>
+      <button type="button" id="reroll">New random draw</button>
+      <p class="hint">Re-rolls the energy split, the tau decay, the muon energy-loss bursts, and the photon counting noise.</p>
+    </fieldset>
+
+    <details>
+      <summary>What this toy model includes</summary>
+      <ul>
+        <li>Detector: 78 strings 125 m apart with 60 DOMs each, plus 8 denser DeepCore strings. Positions are approximate.</li>
+        <li>Light yield: about 170,000 Cherenkov photons per GeV of shower energy. Hadronic showers give 85% of that.</li>
+        <li>Muon energy loss: dE/dx = a + bE, with a = 0.24 GeV/m and b = 3.3 × 10⁻⁴ per metre. E is the muon energy and x is the distance travelled.</li>
+        <li>Tau decay length: 49 m per PeV of tau energy on average.</li>
+        <li>Ice: light fades as exp(−r/λ)/(4πr²), where r is the distance and λ is 30 m in clear ice and 12 m in the dust layer near 2,050 m depth.</li>
+        <li>Charge is in photoelectrons (PE), the number of photons a DOM detects. Sensor size is tuned to give about 0.2 PE per GeV when averaged over interaction points. Events close to a string give more.</li>
+        <li>Not included: Cherenkov cone direction, real ice layers and tilt, noise hits, PMT saturation, Glashow resonance.</li>
+      </ul>
+    </details>
+  </aside>
+
+  <main class="stage">
+    <div class="view">
+      <canvas id="scene" aria-label="3D view of the IceCube detector with the simulated event"></canvas>
+      <div class="badge"><span id="badge-title"></span><small id="badge-sub"></small></div>
+      <div class="zoom">
+        <button type="button" id="zoom-in" aria-label="Zoom in">+</button>
+        <button type="button" id="zoom-out" aria-label="Zoom out">−</button>
+      </div>
+      <div class="legend"><span>early</span><i></i><span>late</span></div>
+    </div>
+    <div class="timeline">
+      <div class="caption">
+        <span>Light arriving at the DOMs over time (square-root scale). Drag to scrub.</span>
+        <span>Time since interaction: <b id="time-out"></b></span>
+      </div>
+      <button type="button" id="play">Pause</button>
+      <div class="scrub">
+        <canvas id="wave"></canvas>
+        <input type="range" id="time" min="0" max="1000" step="1" value="1000" aria-label="Time since interaction">
+        <div class="focus-ring"></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script id="physics">
+// ---------- Physics (no page access; mirrors icecube_toy_sim.py) ----------
+const NUE = 12, NUMU = 14, NUTAU = 16;
+const CC = 1, NC = 2;
+const TAU_TO_HADRONS = 0, TAU_TO_ELECTRON = 1, TAU_TO_MUON = 2;
+
+const PHOTONS_PER_GEV = 1.7e5;
+const HADRONIC_LIGHT_FACTOR = 0.85;
+const DOM_EFFECTIVE_AREA_M2 = 0.0075;
+const C_VACUUM_M_PER_NS = 0.2998;
+const C_ICE_M_PER_NS = 0.2998 / 1.356;
+const MUON_A_GEV_PER_M = 0.24;
+const MUON_B_PER_M = 3.3e-4;
+const TAU_DECAY_LENGTH_M_PER_GEV = 4.9e-5;
+const CLEAR_ICE_ATTENUATION_M = 30.0;
+const DUST_LAYER_ATTENUATION_DROP_M = 18.0;
+const DUST_LAYER_Z_M = -100.0;
+const DUST_LAYER_WIDTH_M = 40.0;
+const SCATTER_DELAY_NS_PER_M2 = 0.054;
+const TRACK_STEP_M = 10.0;
+const MAX_TRACK_STEPS = 300;
+
+function buildDetector() {
+  const rowCounts = [6, 7, 8, 9, 10, 10, 9, 8, 7, 4];
+  const rowShifts = [0, 0, 0, 0, 0, 62.5, 62.5, 62.5, 62.5, 62.5];
+  const sx = [], sy = [];
+  for (let row = 0; row < 10; row++) {
+    const count = rowCounts[row];
+    for (let j = 0; j < count; j++) {
+      sx.push((j - (count - 1) / 2) * 125 + rowShifts[row]);
+      sy.push((row - 4.5) * 108.25);
+    }
+  }
+  let meanX = 0, meanY = 0;
+  for (let s = 0; s < 78; s++) { meanX += sx[s]; meanY += sy[s]; }
+  meanX /= 78; meanY /= 78;
+  let central = 0, best = Infinity;
+  for (let s = 0; s < 78; s++) {
+    sx[s] -= meanX; sy[s] -= meanY;
+    const d2 = sx[s] * sx[s] + sy[s] * sy[s];
+    if (d2 < best) { best = d2; central = s; }
+  }
+  const n = 5160;
+  const x = new Float64Array(n), y = new Float64Array(n), z = new Float64Array(n);
+  const strings = [];
+  let i = 0;
+  for (let s = 0; s < 78; s++) {
+    strings.push({ x: sx[s], y: sy[s], zTop: 500, zBottom: 500 - 17 * 59 });
+    for (let k = 0; k < 60; k++) { x[i] = sx[s]; y[i] = sy[s]; z[i] = 500 - 17 * k; i++; }
+  }
+  for (let d = 0; d < 8; d++) {
+    const angle = (d * 45 + 22.5) * Math.PI / 180;
+    const dx = sx[central] + 60 * Math.cos(angle);
+    const dy = sy[central] + 60 * Math.sin(angle);
+    strings.push({ x: dx, y: dy, zTop: 200, zBottom: -150 - 7 * 49 });
+    for (let k = 0; k < 10; k++) { x[i] = dx; y[i] = dy; z[i] = 200 - 10 * k; i++; }
+    for (let k = 0; k < 50; k++) { x[i] = dx; y[i] = dy; z[i] = -150 - 7 * k; i++; }
+  }
+  const attenuation = new Float64Array(n);
+  for (let k = 0; k < n; k++) attenuation[k] = attenuationLength(z[k]);
+  return { n, x, y, z, strings, attenuation };
+}
+
+function attenuationLength(z) {
+  const u = (z - DUST_LAYER_Z_M) / DUST_LAYER_WIDTH_M;
+  return CLEAR_ICE_ATTENUATION_M - DUST_LAYER_ATTENUATION_DROP_M * Math.exp(-0.5 * u * u);
+}
+
+function buildEmitters(p) {
+  const zenith = p.zenithDeg * Math.PI / 180;
+  const azimuth = p.azimuthDeg * Math.PI / 180;
+  const dirX = -Math.sin(zenith) * Math.cos(azimuth);
+  const dirY = -Math.sin(zenith) * Math.sin(azimuth);
+  const dirZ = -Math.cos(zenith);
+
+  const isCC = p.interaction === CC;
+  const isNueCC = isCC && p.flavor === NUE;
+  const isNumuCC = isCC && p.flavor === NUMU;
+  const isNutauCC = isCC && p.flavor === NUTAU;
+  const tauMakesHadrons = isNutauCC && p.tauDecayMode === TAU_TO_HADRONS;
+  const tauMakesElectron = isNutauCC && p.tauDecayMode === TAU_TO_ELECTRON;
+  const tauMakesMuon = isNutauCC && p.tauDecayMode === TAU_TO_MUON;
+
+  const hadronicEnergy = p.inelasticity * p.energy;
+  const leptonEnergy = (1 - p.inelasticity) * p.energy;
+
+  let vertexPhotons = hadronicEnergy * PHOTONS_PER_GEV * HADRONIC_LIGHT_FACTOR;
+  if (isNueCC) vertexPhotons += leptonEnergy * PHOTONS_PER_GEV;
+
+  let tauTrackLength = 0;
+  if (isNutauCC) tauTrackLength = p.tauLength;
+
+  let decayPhotons = 0;
+  let decayEnergy = 0;
+  if (tauMakesHadrons) { decayEnergy = 0.67 * leptonEnergy; decayPhotons = decayEnergy * PHOTONS_PER_GEV * HADRONIC_LIGHT_FACTOR; }
+  if (tauMakesElectron) { decayEnergy = 0.33 * leptonEnergy; decayPhotons = decayEnergy * PHOTONS_PER_GEV; }
+
+  let muonEnergy = 0;
+  if (isNumuCC) muonEnergy = leptonEnergy;
+  if (tauMakesMuon) muonEnergy = 0.33 * leptonEnergy;
+
+  const distance = [0, tauTrackLength];
+  const photons = [vertexPhotons, decayPhotons];
+  const radiativeFraction = [0, 0];
+
+  for (let k = 0; k < MAX_TRACK_STEPS; k++) {
+    const s0 = k * TRACK_STEP_M;
+    if (s0 >= tauTrackLength) break;
+    const s1 = Math.min(s0 + TRACK_STEP_M, tauTrackLength);
+    distance.push(0.5 * (s0 + s1));
+    photons.push(MUON_A_GEV_PER_M * (s1 - s0) * PHOTONS_PER_GEV);
+    radiativeFraction.push(0);
+  }
+
+  const aOverB = MUON_A_GEV_PER_M / MUON_B_PER_M;
+  const muonRange = Math.log(1 + muonEnergy / aOverB) / MUON_B_PER_M;
+  for (let k = 0; k < MAX_TRACK_STEPS; k++) {
+    const s0 = k * TRACK_STEP_M;
+    if (s0 >= muonRange) break;
+    const s1 = Math.min(s0 + TRACK_STEP_M, muonRange);
+    const e0 = (muonEnergy + aOverB) * Math.exp(-MUON_B_PER_M * s0) - aOverB;
+    const e1 = (muonEnergy + aOverB) * Math.exp(-MUON_B_PER_M * s1) - aOverB;
+    const loss = e0 - e1;
+    distance.push(tauTrackLength + 0.5 * (s0 + s1));
+    photons.push(loss * PHOTONS_PER_GEV);
+    radiativeFraction.push(Math.max(0, 1 - MUON_A_GEV_PER_M * (s1 - s0) / loss));
+  }
+
+  const count = distance.length;
+  const x = new Float64Array(count), y = new Float64Array(count), z = new Float64Array(count), t = new Float64Array(count);
+  for (let e = 0; e < count; e++) {
+    x[e] = p.vx + dirX * distance[e];
+    y[e] = p.vy + dirY * distance[e];
+    z[e] = p.vz + dirZ * distance[e];
+    t[e] = distance[e] / C_VACUUM_M_PER_NS;
+  }
+  return {
+    count, x, y, z, t, photons: Float64Array.from(photons), radiativeFraction,
+    info: {
+      dirX, dirY, dirZ, isCC, isNueCC, isNumuCC, isNutauCC,
+      hadronicEnergy, leptonEnergy, vertexPhotons, decayPhotons, decayEnergy,
+      tauTrackLength, muonEnergy, muonRange,
+      muonDrawLength: Math.min(muonRange, MAX_TRACK_STEPS * TRACK_STEP_M)
+    }
+  };
+}
+
+// Expected charge (photoelectrons) and mean light arrival time at every DOM.
+// If histogram is given, the arriving charge is also binned in time.
+function computeDomLight(det, em, histogram) {
+  const n = det.n;
+  const charge = new Float64Array(n), timeSum = new Float64Array(n);
+  const fourPi = 4 * Math.PI;
+  for (let e = 0; e < em.count; e++) {
+    const photons = em.photons[e];
+    if (photons <= 0) continue;
+    const ex = em.x[e], ey = em.y[e], ez = em.z[e], et = em.t[e];
+    const emitterAttenuation = attenuationLength(ez);
+    for (let i = 0; i < n; i++) {
+      const dx = det.x[i] - ex, dy = det.y[i] - ey, dz = det.z[i] - ez;
+      let r = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      if (r > 900) continue;
+      if (r < 1) r = 1;
+      const middleAttenuation = attenuationLength(0.5 * (det.z[i] + ez));
+      const attenuation = (det.attenuation[i] + emitterAttenuation + middleAttenuation) / 3;
+      const pe = photons * DOM_EFFECTIVE_AREA_M2 * Math.exp(-r / attenuation) / (fourPi * r * r);
+      const arrival = et + r / C_ICE_M_PER_NS + SCATTER_DELAY_NS_PER_M2 * r * r;
+      charge[i] += pe;
+      timeSum[i] += pe * arrival;
+      if (histogram && pe > 1e-3) {
+        const bin = Math.floor(arrival / histogram.binNs);
+        if (bin < histogram.bins.length) histogram.bins[bin] += pe;
+      }
+    }
+  }
+  const meanTime = new Float64Array(n);
+  for (let i = 0; i < n; i++) meanTime[i] = timeSum[i] / Math.max(charge[i], 1e-300);
+  return { charge, meanTime };
+}
+</script>
+
+<script>
+// ---------- Page ----------
+const det = buildDetector();
+const scene = document.getElementById('scene');
+const ctx = scene.getContext('2d');
+const wave = document.getElementById('wave');
+const wctx = wave.getContext('2d');
+const $ = (id) => document.getElementById(id);
+
+const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// One fixed set of random numbers per "draw", so sliders change the event smoothly.
+const draw = { uY: 0.6, uTau: 0.63, uMode: 0.9, domU: new Float64Array(det.n), domZ: new Float64Array(det.n), burst: new Float64Array(2 * MAX_TRACK_STEPS + 2) };
+
+function makeRng(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function rollNoise(seed) {
+  const rng = makeRng(seed);
+  for (let i = 0; i < det.n; i++) {
+    draw.domU[i] = rng();
+    draw.domZ[i] = Math.sqrt(-2 * Math.log(1 - rng())) * Math.cos(2 * Math.PI * rng());
+  }
+  for (let k = 0; k < draw.burst.length; k++) draw.burst[k] = -Math.log(1 - rng());
+}
+
+function rollEvent(seed) {
+  const rng = makeRng(seed ^ 0x9E3779B9);
+  draw.uY = rng(); draw.uTau = rng(); draw.uMode = rng();
+}
+
+function samplePoisson(mean, u, zNormal) {
+  if (mean <= 0) return 0;
+  if (mean >= 30) return Math.max(0, Math.round(mean + Math.sqrt(mean) * zNormal));
+  let p = Math.exp(-mean), cumulative = p, k = 0;
+  while (u > cumulative && k < 200) { k++; p *= mean / k; cumulative += p; }
+  return k;
+}
+
+function formatEnergy(gev) {
+  if (gev >= 1e6) return (gev / 1e6).toPrecision(3) + ' PeV';
+  if (gev >= 1e3) return (gev / 1e3).toPrecision(3) + ' TeV';
+  return gev.toPrecision(3) + ' GeV';
+}
+function formatLength(m) {
+  if (m >= 1000) return (m / 1000).toPrecision(3) + ' km';
+  return m.toPrecision(3) + ' m';
+}
+function formatTime(ns) {
+  if (ns >= 1000) return (ns / 1000).toFixed(2) + ' µs';
+  return ns.toFixed(0) + ' ns';
+}
+
+// ---------- Event ----------
+let event = null;
+const histogram = { binNs: 25, bins: new Float64Array(640) };
+
+function readParameters() {
+  const flavor = Number(document.querySelector('input[name="flavor"]:checked').value);
+  const interaction = Number(document.querySelector('input[name="interaction"]:checked').value);
+  const energy = Math.pow(10, Number($('energy').value));
+  const inelasticity = 0.01 + 0.95 * Math.pow(draw.uY, 2.2);
+  const leptonEnergy = (1 - inelasticity) * energy;
+  const tauLength = -Math.log(1 - draw.uTau) * TAU_DECAY_LENGTH_M_PER_GEV * leptonEnergy;
+  let tauDecayMode = TAU_TO_HADRONS;
+  if (draw.uMode < 0.35) tauDecayMode = TAU_TO_ELECTRON;
+  if (draw.uMode < 0.17) tauDecayMode = TAU_TO_MUON;
+  return {
+    flavor, interaction, energy,
+    zenithDeg: Number($('zenith').value), azimuthDeg: Number($('azimuth').value),
+    vx: Number($('vx').value), vy: Number($('vy').value), vz: 1950 - Number($('depth').value),
+    inelasticity, tauLength, tauDecayMode
+  };
+}
+
+function simulate() {
+  const p = readParameters();
+  const em = buildEmitters(p);
+  // Muon energy loss comes in random bursts: scale the radiative part of each step.
+  for (let e = 0; e < em.count; e++) {
+    const f = em.radiativeFraction[e];
+    em.photons[e] *= (1 - f) + f * draw.burst[e];
+  }
+  histogram.bins.fill(0);
+  const light = computeDomLight(det, em, histogram);
+
+  const pe = new Float64Array(det.n);
+  const hits = [];
+  let total = 0, tFirst = Infinity, tLast = 0;
+  for (let i = 0; i < det.n; i++) {
+    const k = samplePoisson(light.charge[i], draw.domU[i], draw.domZ[i]);
+    pe[i] = k;
+    if (k < 1) continue;
+    hits.push(i);
+    total += k;
+    if (light.meanTime[i] < tFirst) tFirst = light.meanTime[i];
+    if (light.meanTime[i] > tLast) tLast = light.meanTime[i];
+  }
+  if (hits.length === 0) { tFirst = 0; tLast = 800; }
+  const tEnd = Math.max(1200, tLast + 400);
+  // Color scale ends at the 95th percentile of hit times, so a few late hits do not wash it out.
+  const sortedTimes = hits.map((i) => light.meanTime[i]).sort((a, b) => a - b);
+  if (sortedTimes.length > 0) tLast = sortedTimes[Math.floor(0.95 * (sortedTimes.length - 1))];
+  event = { p, em, info: em.info, pe, time: light.meanTime, hits, total, tFirst, tLast, tEnd };
+  updateReadout();
+}
+
+function updateReadout() {
+  const p = event.p, info = event.info;
+  $('energy-out').textContent = formatEnergy(p.energy);
+  $('zenith-out').textContent = p.zenithDeg + '°';
+  $('azimuth-out').textContent = p.azimuthDeg + '°';
+  $('vx-out').textContent = p.vx + ' m';
+  $('vy-out').textContent = p.vy + ' m';
+  $('depth-out').textContent = $('depth').value + ' m';
+
+  let title = 'Single cascade';
+  let sub = 'One shower. The outgoing neutrino carries the rest of the energy away unseen.';
+  if (info.isNueCC) sub = 'The electron and the nuclear debris shower in one compact burst of light.';
+  if (info.isNumuCC) { title = 'Starting track'; sub = 'A shower at the interaction point, then a muon that travels for kilometres.'; }
+  if (info.isNutauCC) { title = 'Double bang'; sub = 'One shower where the tau is made, a second where it decays. They separate above about 1 PeV.'; }
+  $('badge-title').textContent = title;
+  $('badge-sub').textContent = sub;
+
+  $('r-y').textContent = (100 * p.inelasticity).toFixed(0) + '%';
+  let vertexEnergy = info.hadronicEnergy;
+  if (info.isNueCC) vertexEnergy = p.energy;
+  $('r-vertex').textContent = formatEnergy(vertexEnergy);
+
+  let muonText = 'none';
+  if (info.muonEnergy > 0) muonText = formatEnergy(info.muonEnergy) + ', range ' + formatLength(info.muonRange);
+  $('r-muon').textContent = muonText;
+
+  let tauText = 'none';
+  const modeNames = ['hadrons', 'electron', 'muon'];
+  if (info.isNutauCC) tauText = formatLength(info.tauTrackLength) + ', decays to ' + modeNames[p.tauDecayMode];
+  $('r-tau').textContent = tauText;
+
+  $('r-doms').textContent = event.hits.length.toLocaleString('en-US') + ' of 5,160';
+  $('r-charge').textContent = Math.round(event.total).toLocaleString('en-US') + ' PE';
+}
+
+// ---------- Camera and drawing ----------
+const camera = { yaw: 0.7, pitch: 0.28, zoom: 1 };
+let viewW = 0, viewH = 0, dpr = 1;
+const projX = new Float32Array(det.n), projY = new Float32Array(det.n), projD = new Float32Array(det.n);
+let cosYaw = 1, sinYaw = 0, cosPitch = 1, sinPitch = 0, focal = 1, camDistance = 2600;
+
+function project(x, y, z) {
+  const x1 = x * cosYaw - y * sinYaw;
+  const y1 = x * sinYaw + y * cosYaw;
+  const y2 = y1 * cosPitch - z * sinPitch;
+  const z2 = y1 * sinPitch + z * cosPitch;
+  const depth = Math.max(y2 + camDistance, 50);
+  return [viewW / 2 + focal * x1 / depth, viewH * 0.5 - focal * z2 / depth, depth];
+}
+
+function timeColor(fraction) {
+  const f = Math.min(1, Math.max(0, fraction));
+  return 'hsl(' + (250 * f).toFixed(0) + ' 95% 60%)';
+}
+
+function resize() {
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const box = scene.getBoundingClientRect();
+  viewW = box.width; viewH = box.height;
+  scene.width = Math.round(viewW * dpr); scene.height = Math.round(viewH * dpr);
+  const wbox = wave.getBoundingClientRect();
+  wave.width = Math.round(wbox.width * dpr); wave.height = Math.round(wbox.height * dpr);
+  needsDraw = true;
+}
+
+function strokePath(points, color, width, dash) {
+  ctx.beginPath();
+  for (let k = 0; k < points.length; k++) {
+    if (k === 0) ctx.moveTo(points[k][0], points[k][1]);
+    if (k > 0) ctx.lineTo(points[k][0], points[k][1]);
+  }
+  ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash(dash);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function ringPoints(radius, z) {
+  const points = [];
+  for (let k = 0; k <= 64; k++) {
+    const a = k / 64 * 2 * Math.PI;
+    points.push(project(radius * Math.cos(a), radius * Math.sin(a), z));
+  }
+  return points;
+}
+
+function drawScene(tNow) {
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, viewW, viewH);
+  cosYaw = Math.cos(camera.yaw); sinYaw = Math.sin(camera.yaw);
+  cosPitch = Math.cos(camera.pitch); sinPitch = Math.sin(camera.pitch);
+  camDistance = 2600 / camera.zoom;
+  focal = 1.55 * Math.min(viewW, viewH);
+  const unit = Math.min(viewW, viewH) / 700;
+
+  // Depth guides
+  ctx.font = '11px "IBM Plex Mono", monospace';
+  const guides = [[500, '1,450 m deep', [], '#2c4160'], [-100, 'dust layer, 2,050 m', [4, 5], '#4a4a3a'], [-500, '2,450 m deep', [], '#2c4160']];
+  for (const [z, label, dash, color] of guides) {
+    const ring = ringPoints(640, z);
+    strokePath(ring, color, 1, dash);
+    ctx.fillStyle = '#6f84a0';
+    ctx.fillText(label, ring[0][0] + 8, ring[0][1] + 4);
+  }
+
+  // Strings
+  ctx.beginPath();
+  for (const s of det.strings) {
+    const top = project(s.x, s.y, s.zTop), bottom = project(s.x, s.y, s.zBottom);
+    ctx.moveTo(top[0], top[1]); ctx.lineTo(bottom[0], bottom[1]);
+  }
+  ctx.strokeStyle = 'rgba(70, 98, 138, 0.35)'; ctx.lineWidth = 1; ctx.stroke();
+
+  // DOMs
+  ctx.fillStyle = 'rgba(126, 152, 190, 0.5)';
+  const dotSize = Math.max(1.2, 1.5 * unit);
+  for (let i = 0; i < det.n; i++) {
+    const q = project(det.x[i], det.y[i], det.z[i]);
+    projX[i] = q[0]; projY[i] = q[1]; projD[i] = q[2];
+    ctx.fillRect(q[0] - dotSize / 2, q[1] - dotSize / 2, dotSize, dotSize);
+  }
+
+  // Particle paths
+  const info = event.info, p = event.p;
+  const along = (d) => project(p.vx + info.dirX * d, p.vy + info.dirY * d, p.vz + info.dirZ * d);
+  strokePath([along(-1600), along(0)], 'rgba(220, 232, 246, 0.45)', 1.2, [3, 6]);
+  const travelled = tNow * C_VACUUM_M_PER_NS;
+  if (info.tauTrackLength > 0) {
+    strokePath([along(0), along(Math.min(travelled, info.tauTrackLength))], '#ffb347', 2, []);
+  }
+  if (info.muonEnergy > 0 && travelled > info.tauTrackLength) {
+    const end = Math.min(travelled, info.tauTrackLength + info.muonDrawLength);
+    strokePath([along(info.tauTrackLength), along(end)], 'rgba(255, 255, 255, 0.85)', 1.6, []);
+  }
+  if (!info.isCC) {
+    strokePath([along(0), along(Math.min(travelled, 1600))], 'rgba(220, 232, 246, 0.3)', 1.2, [3, 6]);
+  }
+
+  // Lit DOMs, far to near
+  const lit = [];
+  for (const i of event.hits) if (event.time[i] <= tNow) lit.push(i);
+  lit.sort((a, b) => projD[b] - projD[a]);
+  const span = Math.max(event.tLast - event.tFirst, 1);
+  ctx.globalAlpha = 0.86;
+  for (const i of lit) {
+    const grow = Math.min(1, 0.35 + (tNow - event.time[i]) / 250);
+    const radius = (1.3 + 2.3 * Math.log10(1 + event.pe[i])) * unit * (camDistance / projD[i]) * camera.zoom * grow;
+    ctx.beginPath();
+    ctx.arc(projX[i], projY[i], radius, 0, 2 * Math.PI);
+    ctx.fillStyle = timeColor((event.time[i] - event.tFirst) / span);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // Shower markers
+  const markers = [[0, info.vertexPhotons], [info.tauTrackLength, info.decayPhotons]];
+  for (const [d, photons] of markers) {
+    if (photons <= 0 || travelled < d) continue;
+    const q = along(d);
+    ctx.beginPath(); ctx.arc(q[0], q[1], 7 * unit + 3, 0, 2 * Math.PI);
+    ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.5; ctx.stroke();
+  }
+}
+
+function drawWave(tNow) {
+  const w = wave.width, h = wave.height;
+  wctx.clearRect(0, 0, w, h);
+  const bars = Math.max(40, Math.floor(w / (3 * dpr)));
+  const values = new Float64Array(bars);
+  let peak = 0;
+  for (let b = 0; b < bars; b++) {
+    const t0 = b / bars * event.tEnd, t1 = (b + 1) / bars * event.tEnd;
+    const k0 = Math.floor(t0 / histogram.binNs), k1 = Math.max(k0 + 1, Math.floor(t1 / histogram.binNs));
+    let sum = 0;
+    for (let k = k0; k < k1 && k < histogram.bins.length; k++) sum += histogram.bins[k];
+    values[b] = Math.sqrt(sum);
+    if (values[b] > peak) peak = values[b];
+  }
+  const span = Math.max(event.tLast - event.tFirst, 1);
+  const barW = w / bars;
+  for (let b = 0; b < bars; b++) {
+    const tMid = (b + 0.5) / bars * event.tEnd;
+    const height = peak > 0 ? values[b] / peak * (h - 6) : 0;
+    wctx.globalAlpha = tMid <= tNow ? 1 : 0.22;
+    wctx.fillStyle = timeColor((tMid - event.tFirst) / span);
+    wctx.fillRect(b * barW, h - height, Math.max(1, barW - dpr), height);
+  }
+  wctx.globalAlpha = 1;
+  wctx.fillStyle = '#24364f';
+  wctx.fillRect(0, h - dpr, w, dpr);
+  const cursorX = Math.min(w - 2 * dpr, tNow / event.tEnd * w);
+  wctx.fillStyle = '#ffffff';
+  wctx.fillRect(cursorX, 0, 2 * dpr, h);
+}
+
+// ---------- Animation ----------
+let tNow = 0, playing = !reducedMotion, holdUntil = 0, lastFrame = 0, needsDraw = true;
+const PLAY_MS = 6000, HOLD_MS = 2600;
+
+function showFullEvent() { tNow = event.tEnd; holdUntil = performance.now() + HOLD_MS; needsDraw = true; }
+
+function frame(now) {
+  const elapsed = Math.min(now - lastFrame, 100);
+  lastFrame = now;
+  if (playing && now >= holdUntil) {
+    if (tNow >= event.tEnd) tNow = 0;
+    tNow = Math.min(event.tEnd, tNow + elapsed * event.tEnd / PLAY_MS);
+    if (tNow >= event.tEnd) holdUntil = now + HOLD_MS;
+    needsDraw = true;
+  }
+  if (needsDraw) {
+    needsDraw = false;
+    drawScene(tNow);
+    drawWave(tNow);
+    $('time').value = Math.round(tNow / event.tEnd * 1000);
+    $('time-out').textContent = formatTime(tNow);
+  }
+  requestAnimationFrame(frame);
+}
+
+function refresh() { simulate(); showFullEvent(); }
+
+// ---------- Controls ----------
+for (const id of ['energy', 'zenith', 'azimuth', 'vx', 'vy', 'depth']) $(id).addEventListener('input', refresh);
+for (const radio of document.querySelectorAll('input[type="radio"]')) radio.addEventListener('change', refresh);
+
+let seed = 20261113;
+$('reroll').addEventListener('click', () => { seed += 1; rollNoise(seed); rollEvent(seed); refresh(); });
+
+function applyPreset(values) {
+  $(values.flavorId).checked = true;
+  $('int-cc').checked = true;
+  $('energy').value = values.logE; $('zenith').value = values.zenith; $('azimuth').value = values.azimuth;
+  $('vx').value = values.vx; $('vy').value = values.vy; $('depth').value = values.depth;
+  draw.uY = values.uY; draw.uTau = values.uTau; draw.uMode = values.uMode;
+  refresh();
+}
+$('preset-cascade').addEventListener('click', () => applyPreset({ flavorId: 'flavor-e', logE: 6, zenith: 60, azimuth: 120, vx: 40, vy: -30, depth: 1900, uY: 0.6, uTau: 0.63, uMode: 0.9 }));
+$('preset-track').addEventListener('click', () => applyPreset({ flavorId: 'flavor-mu', logE: 5.3, zenith: 70, azimuth: 220, vx: -200, vy: -150, depth: 1850, uY: 0.6, uTau: 0.63, uMode: 0.9 }));
+$('preset-bang').addEventListener('click', () => applyPreset({ flavorId: 'flavor-tau', logE: 7, zenith: 95, azimuth: 200, vx: -230, vy: -80, depth: 1800, uY: 0.5, uTau: 0.68, uMode: 0.9 }));
+
+$('play').addEventListener('click', () => {
+  playing = !playing;
+  holdUntil = 0;
+  $('play').textContent = playing ? 'Pause' : 'Play';
+});
+$('time').addEventListener('input', () => {
+  playing = false;
+  $('play').textContent = 'Play';
+  tNow = Number($('time').value) / 1000 * event.tEnd;
+  needsDraw = true;
+});
+
+let dragging = false, lastX = 0, lastY = 0;
+scene.addEventListener('pointerdown', (e) => { dragging = true; lastX = e.clientX; lastY = e.clientY; scene.setPointerCapture(e.pointerId); scene.classList.add('dragging'); });
+scene.addEventListener('pointermove', (e) => {
+  if (!dragging) return;
+  camera.yaw += (e.clientX - lastX) * 0.006;
+  camera.pitch = Math.min(1.5, Math.max(-0.3, camera.pitch + (e.clientY - lastY) * 0.006));
+  lastX = e.clientX; lastY = e.clientY;
+  needsDraw = true;
+});
+const endDrag = () => { dragging = false; scene.classList.remove('dragging'); };
+scene.addEventListener('pointerup', endDrag);
+scene.addEventListener('pointercancel', endDrag);
+function zoomBy(factor) { camera.zoom = Math.min(4, Math.max(0.5, camera.zoom * factor)); needsDraw = true; }
+scene.addEventListener('wheel', (e) => { e.preventDefault(); zoomBy(Math.exp(-e.deltaY * 0.0012)); }, { passive: false });
+$('zoom-in').addEventListener('click', () => zoomBy(1.25));
+$('zoom-out').addEventListener('click', () => zoomBy(0.8));
+
+new ResizeObserver(resize).observe(scene);
+window.addEventListener('resize', resize);
+
+$('play').textContent = playing ? 'Pause' : 'Play';
+rollNoise(seed);
+resize();
+refresh();
+requestAnimationFrame((now) => { lastFrame = now; frame(now); });
+</script>
+</body>
+</html>
